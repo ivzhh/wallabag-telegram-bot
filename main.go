@@ -350,11 +350,10 @@ func main() {
 			log.Error(err)
 		}
 
-		log.Infof("Get %d updates", len(updates))
-
 		timer := time.NewTimer(timeOut * time.Second)
 
 		for _, update := range updates {
+			offset = 1 + update.UpdateID
 
 			if update.Message == nil { // ignore any non-Message Updates
 				continue
@@ -366,9 +365,6 @@ func main() {
 				log.Infof("Telegram discards as it is from user: %s", update.Message.From.UserName)
 				continue
 			}
-
-			offset = 1 + update.UpdateID
-			log.Infof("update.UpdateID: %d", update.UpdateID)
 
 			for _, r := range rxStrict.FindAllString(update.Message.Text, -1) {
 				log.Infof("Found URL: %s", r)
