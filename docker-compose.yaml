@@ -1,0 +1,9 @@
+version: "3"
+services:
+  fossil:
+    image: localhost/wallabag-bot
+    container_name: wallabag-bot
+    volumes:
+      - /your/path/to/wallabag.json:/root/.config/t.me
+    network_mode: "host" # if wallabag is not public facing
+    
