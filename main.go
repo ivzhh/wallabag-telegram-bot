@@ -95,6 +95,8 @@ type saveURLRequest struct {
 	MessageID int
 }
 
+const rescanInterval = 3600
+
 func sqlite3Handler(diskQueue, reqQueue, diskAckQueue, ackQueue chan saveURLRequest) {
 	var database *sql.DB
 	var statement *sql.Stmt
@@ -127,26 +129,37 @@ func sqlite3Handler(diskQueue, reqQueue, diskAckQueue, ackQueue chan saveURLRequ
 	}
 
 	go func() {
-		var rows *sql.Rows
-		if rows, err = database.Query(`
+
+		for {
+			timer := time.NewTimer(rescanInterval * time.Second)
+
+			var rows *sql.Rows
+			if rows, err = database.Query(`
 		SELECT URL, ChatID, MessageID
 		FROM Requests
 		WHERE saved == 0
 		`); err != nil {
-			log.Fatalf("%v", err)
-		}
-
-		var URL string
-		var ChatID int64
-		var MessageID int
-
-		for rows.Next() {
-			if err := rows.Scan(&URL, &ChatID, &MessageID); err != nil {
-				log.Error("Cannot read url from database")
-				continue
+				log.Fatalf("%v", err)
 			}
-			log.Infof("Unfinished %s, %d, %d", URL, ChatID, MessageID)
-			reqQueue <- saveURLRequest{URL: URL, ChatID: ChatID, MessageID: MessageID}
+
+			var URL string
+			var ChatID int64
+			var MessageID int
+
+			for rows.Next() {
+				if err := rows.Scan(&URL, &ChatID, &MessageID); err != nil {
+					log.Error("Cannot read url from database")
+					continue
+				}
+				log.Infof("Unfinished %s, %d, %d", URL, ChatID, MessageID)
+				reqQueue <- saveURLRequest{URL: URL, ChatID: ChatID, MessageID: MessageID}
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+			}
 		}
 	}()
 
@@ -158,6 +171,21 @@ func sqlite3Handler(diskQueue, reqQueue, diskAckQueue, ackQueue chan saveURLRequ
 			case <-ctx.Done():
 				return
 			}
+
+			var count int
+			row := database.QueryRow("SELECT COUNT(*) FROM Requests WHERE URL = ?", r.URL)
+			err := row.Scan(&count)
+
+			if err != nil {
+				log.Errorf("Fail to get count of URL: %v", err)
+				continue
+			}
+
+			if count != 0 {
+				log.Infof("Skip existing URL: %s", r.URL)
+				continue
+			}
+
 			log.Infof("Saving request to disk first: %s, %d, %d", r.URL, r.ChatID, r.MessageID)
 
 			statement, err := database.Prepare("INSERT INTO Requests (URL, ChatID, MessageID, saved) VALUES (?, ?, ?, 0)")
